@@ -32,6 +32,10 @@ void I2CEEPROM::write(unsigned int address, byte data) const
   // Generate the proper I2C address based on device mask and memory address
   uint8_t dev_address = generate_I2C_address(address);
 
+#ifdef CAT24CXX_ACK_POLLING
+  if(cat24cxx_ack_poll(dev_address)) return;
+#endif
+
   Wire.beginTransmission(dev_address);
   // In classic device mode, send the 8 MSB of the memory address.  This is already part of the device addr in CAT24CXX
   if(_addressing_mode == ADDRESS_MODE_16BIT) Wire.write((byte)(address >> 8));   // First part of the address (MSB)
@@ -39,8 +43,10 @@ void I2CEEPROM::write(unsigned int address, byte data) const
   Wire.write(data);                  // Write byte
   Wire.endTransmission();
 
-  // Writing in I2C EEPROM takes ~5ms (even if I2C writing already done)
+#ifndef CAT24CXX_ACK_POLLING
+  // Writing in I2C EEPROM takes ~5ms (even if I2C writing already done) -- Run only if ACK polling isn't enabled
   delay(5);
+#endif
 }
 
 byte I2CEEPROM::read(unsigned int address) const
@@ -48,6 +54,10 @@ byte I2CEEPROM::read(unsigned int address) const
   // Generate the proper I2C address based on device mask and memory address
   uint8_t dev_address = generate_I2C_address(address);
   byte read_data = 0xFF;
+
+#ifdef CAT24CXX_ACK_POLLING
+  if(cat24cxx_ack_poll(dev_address)) return 0xFF;
+#endif
 
   Wire.beginTransmission(dev_address);
   // In classic device mode, send the 8 MSB of the memory address.  This is already part of the device addr in CAT24CXX
@@ -58,10 +68,15 @@ byte I2CEEPROM::read(unsigned int address) const
   // Request 1 byte from device
   Wire.requestFrom(dev_address, 1);
 
-  if (Wire.available())
+  // Give it a couple of opportunities to read
+  int loopbreak = 16;
+  while(!Wire.available())
   {
-    read_data = Wire.read();
+      if(!loopbreak--) return 0xFF;
+      delayMicroseconds(1);
   }
+  
+  read_data = Wire.read();
 
   return read_data;
 }
@@ -77,3 +92,19 @@ uint8_t I2CEEPROM::generate_I2C_address(uint16_t address) const
 
   return dev_address;
 }
+
+#ifdef CAT24CXX_ACK_POLLING
+uint8_t I2CEEPROM::cat24cxx_ack_poll(uint8_t dev_address) const
+{
+  // At 400kHz, one byte should take 1/50,000 sec = 20 us, so 5 ms = 5/0.02 = 250 attempts =>  Factor of 400000/250 = 1600.
+  int ackpollmax = CAT24CXX_ACK_POLLING / 1500; // max number of attempts at ack polling, run slightly more times to be sure.
+  uint8_t rv;
+  do {
+      Wire.beginTransmission(dev_address);
+      rv = Wire.endTransmission();
+      if(!ackpollmax--) return -1;
+  } while(rv == 2); // From Arduino docs -- 2: received NACK on transmit of address.
+           
+  return 0;
+}
+#endif

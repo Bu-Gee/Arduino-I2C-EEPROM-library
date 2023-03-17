@@ -72,6 +72,14 @@ class I2CEEPROM
      * \return (uint8_t) Read Byte at EEPROM internal address \p address (returns 0xFF if an error occurred)
      */
     uint8_t generate_I2C_address(uint16_t address) const;
+  #ifdef CAT24CXX_ACK_POLLING
+    /*!
+     * \brief Perform CAT24Cxx device "ACK polling" to ensure availability of the device.
+     * \param dev_address (uint8_t) CAT24Cxx I2C "device address" as returned from generate_I2C_address
+     * \return (uint8_t) Return 0 if ack polling completed successfully, returns non-zero if it is unable to communicate with device.
+     */
+    uint8_t cat24cxx_ack_poll(uint8_t dev_address) const;
+  #endif
 
   private:
     int _i2c_device_address;
